@@ -227,6 +227,38 @@ def resend_verification():
     # check for empty fields
     if not email:
         return jsonify({"error":"Email is required"}),400
+
+    # find the user in our database
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT 
+                user_id,
+                email_verified_at
+            FROM users
+            WHERE email = %s
+            """,(email,))
+
+        user = cursor.fetchone()
+        # if user doesn't exist
+        if not user:
+            return jsonify({"error":"Invalid request."}),400
+
+        # return if the user does exist
+        user_id ,email_verified_at = user
+
+        # validate them
+        if email_verified_at is not None:
+            return jsonify({"error":"Email has already been verified."}),409
+
+        return jsonify({"message":"Ready to get a new verification code."})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error":str(e)}),500
+    # finally:
+    #     conn.close()
        
  
 
