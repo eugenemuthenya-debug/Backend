@@ -213,7 +213,21 @@ def verify_email():
         return jsonify({"error":str(e)}),500
     # finally:
     #     conn.close()
-        
+
+
+
+# -------------Resend verification code-----------------
+@auth_bp.post("/resend-verification")
+def resend_verification():
+    data = request.get_json()
+
+    # we only need the correct email to resend the verification code email.
+    email = data.get("email")
+
+    # check for empty fields
+    if not email:
+        return jsonify({"error":"Email is required"}),400
+       
  
 
 
