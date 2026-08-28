@@ -1,14 +1,16 @@
 from flask import Flask
+
 from dotenv import load_dotenv
 import os
 import psycopg
-from extensions import bcrypt
+from extensions import bcrypt,limiter
 
 from routes.auth import auth_bp
 
 load_dotenv()
 app = Flask(__name__)
 bcrypt.init_app(app)
+limiter.init_app(app)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 

@@ -4,7 +4,7 @@ from datetime import datetime,timedelta,timezone
 from flask import Blueprint,request,jsonify
 import secrets
 import traceback
-from extensions import bcrypt
+from extensions import bcrypt,limiter
 from database import get_db_connection
 # import psycopg
 
@@ -132,7 +132,8 @@ def signup():
         try:
             send_verification_email(
                     email,
-                    verification_code
+                    verification_code,
+                    username
                )
             return jsonify({"message":"Verification code sent to your email.",
                                     "email":email}),201
@@ -151,6 +152,7 @@ def signup():
 
 # --------------Verify - email----------------------------
 @auth_bp.post("/verify-email")
+@limiter.limit("5 per minute")
 def verify_email():
     data = request.get_json()
 
@@ -171,7 +173,9 @@ def verify_email():
             user_id,
             email_verification_code_hash,
             email_verification_expires_at,
-            email_verified_at
+            email_verified_at,
+            email_verification_attempts,
+            email_verification_last_attempt_at
             FROM users
             WHERE email = %s
                 """,
@@ -180,7 +184,15 @@ def verify_email():
         if not user :
             return jsonify({"error":"Invalid verification request."}),400
 
-        user_id,email_verification_code_hash,email_verification_expires_at,email_verified_at = user
+        (user_id,
+         email_verification_code_hash,email_verification_expires_at,
+         email_verified_at,
+         email_verification_attempts,
+         email_verification_last_attempt_at
+         ) = user
+
+        
+
         if email_verified_at is not None:
             return jsonify({"message":"Email already verified."}),409
         if email_verification_code_hash is None or email_verification_expires_at is None:
@@ -188,22 +200,69 @@ def verify_email():
         if datetime.now(timezone.utc) > email_verification_expires_at:
             return jsonify({"error":"Verification code has expired."}),400
 
+        # our cooldown for how may attempts the user can make .
+        attempt_time = datetime.now(timezone.utc)
+        if email_verification_last_attempt_at is not None:
+            time_since_last_attempt = (
+                attempt_time - email_verification_last_attempt_at)
+            if time_since_last_attempt.total_seconds() < 5:
+                return jsonify({"error":"Please wait a few seconds before trying again."}),429
+
+       
         # check verification code
         if not bcrypt.check_password_hash(
             email_verification_code_hash,
             verification_code
         ):
-            return jsonify({"error":"Invalid verification code."})
+             #attempt record
+            new_attempt_count = email_verification_attempts + 1
+
+            # whe  max is reached, we set the max attempt, clear everything and ask for a new code.
+            if new_attempt_count >= 5:
+                cursor.execute("""
+                    UPDATE users
+                    SET
+                      email_verification_attempts = %s,
+                      email_verification_last_attempt_at = %s,
+                      email_verification_code_hash = NULL,
+                      email_verification_expires_at = NULL
+                    WHERE user_id = %s
+                """,(
+                    new_attempt_count,
+                    attempt_time,
+                    user_id
+                ))
+                conn.commit()
+                return jsonify({"error":"Too many incorrect verification attempts. Please request a new verification code."}),429
+
+            # Fewer attempts than 5
+            cursor.execute("""
+                UPDATE users
+                SET 
+                  email_verification_attempts = %s,
+                  email_verification_last_attempt_at = %s
+                WHERE user_id = %s
+                """,(
+                    new_attempt_count,
+                    attempt_time,
+                    user_id
+                ))
+            conn.commit()
+            return jsonify({"error":"Invalid verification code."}),400
 
         # if user passes all then we declare them verified 
         cursor.execute("""
             UPDATE users
             SET 
+                email_verified = TRUE,
                 email_verified_at = NOW(),
-                email_verification_code_hash = NULL
-                email_verification_expires_at = NULL
+                email_verification_code_hash = NULL,
+                email_verification_expires_at = NULL,
+                email_verification_attempts = 0,
+                email_verification_last_attempt_at = NULL
             WHERE user_id = %s
-                """,(user_id,))
+                """,(
+                    user_id,))
         conn.commit()
 
         return jsonify({"message":"Account created .Redirecting to log in.Please Wait."})
@@ -218,6 +277,7 @@ def verify_email():
 
 # -------------Resend verification code-----------------
 @auth_bp.post("/resend-verification")
+@limiter.limit("1 per minute")
 def resend_verification():
     data = request.get_json()
 
@@ -236,6 +296,7 @@ def resend_verification():
         cursor.execute("""
             SELECT 
                 user_id,
+                username,
                 email_verified_at
             FROM users
             WHERE email = %s
@@ -247,13 +308,49 @@ def resend_verification():
             return jsonify({"error":"Invalid request."}),400
 
         # return if the user does exist
-        user_id ,email_verified_at = user
+        user_id , username ,email_verified_at  = user
 
         # validate them
         if email_verified_at is not None:
             return jsonify({"error":"Email has already been verified."}),409
 
-        return jsonify({"message":"Ready to get a new verification code."})
+        # create another verification code
+        verification_code = f"{secrets.randbelow(1000000):06d}"
+
+        # hash the new code
+        email_verification_code_hash = bcrypt.generate_password_hash(verification_code).decode("utf-8")
+
+        # code expiration
+        email_verification_expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10))
+
+        # update the users tables
+        cursor.execute("""
+            UPDATE users
+            SET 
+             email_verification_code_hash = %s,
+             email_verification_expires_at = %s,
+             email_verification_attempts = 0
+            WHERE user_id = %s
+            """,(
+             email_verification_code_hash,
+             email_verification_expires_at,
+             user_id
+             ))
+        conn.commit()
+
+        # resend the actual code
+        try:
+            send_verification_email(
+                email,
+                verification_code,
+                username
+            )
+        except Exception as e:
+            traceback.print_exc()
+            return jsonify({"error":str(e)}),500
+
+
+        return jsonify({"message":"Verification code has been sent."})
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error":str(e)}),500

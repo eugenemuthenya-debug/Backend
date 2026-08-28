@@ -29,20 +29,21 @@ BREVO_API_KEY = os.getenv("BREVO_API_KEY")
 
 client = Brevo(api_key=BREVO_API_KEY)
 try :
-    def send_verification_email(email, verification_code):
+    def send_verification_email(email, verification_code,username):
         response = client.transactional_emails.send_transac_email(
         subject="Verify your Church Media Hub account",
         html_content= f"""
         <html>
             <body>
-                <h2>Welcome to Church Media Hub</h2>
-                <p>Your email verification code is :</p>
+                <h1>Hi {username}, </h1>
+                <h2>Welcome to Church Media Hub!</h2>
+                <p>We are glad to have you hear with us.To finish setting up your account, enter the verification code below :</p>
                 <h1>{verification_code}</h1>
                 <p>This code will expire in 10 minutes.</p>
                 <p>If you did not create this account, you can safely ignore this email.
                 </p>
 
-                <p>Church Media Hub</p>
+                <p> The Church Media Hub Team</p>
             </body>
         </html>
         """,
@@ -75,6 +76,6 @@ if __name__ == "__main__":
 
 
 
-print("Brevo API client initialized successfully!")
+# print("Brevo API client initialized successfully!")
 # print("Brevo API key loaded:", bool(BREVO_API_KEY))
 
