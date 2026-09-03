@@ -1,16 +1,23 @@
 from flask import Flask
+from datetime import timedelta
 
 from dotenv import load_dotenv
 import os
 import psycopg
-from extensions import bcrypt,limiter
+from extensions import bcrypt,limiter,jwt
 
 from routes.auth import auth_bp
 
 load_dotenv()
 app = Flask(__name__)
+app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY")
+# expiration of our tokens
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(minutes=10)
+app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=30)
 bcrypt.init_app(app)
 limiter.init_app(app)
+jwt.init_app(app)
+
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 

@@ -7,6 +7,13 @@ import traceback
 from extensions import bcrypt,limiter
 from database import get_db_connection
 # import psycopg
+from flask_jwt_extended import (
+    create_access_token,
+    create_refresh_token,
+    jwt_required,
+    get_jwt_identity
+
+)
 
 from services.email_service import send_verification_email
 # we are creating a blueprint instead of an another app
@@ -354,16 +361,99 @@ def resend_verification():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error":str(e)}),500
-    # finally:
-    #     conn.close()
+    finally:
+        conn.close()
+
+# ------------------Log in--------------------------------
+@auth_bp.post("/log-in")
+@limiter.limit("5 per minute")
+def log_in():
+
+    # we accept data
+    data = request.get_json()
+
+    # prevent empty request
+    if not data :
+        return jsonify({"error":"Request body is required"}),400
+
+    # the data we need
+    email = data.get("email")
+    password = data.get("password")
+
+    # check for empty fields
+    if not email or not password:
+        return jsonify({"error":"All fields are required."}),400
+
+    try:
+        # this creates our db connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT 
+             user_id,
+             username,
+             password_hash,
+             email,
+             email_verified
+            FROM users
+            WHERE email = %s
+            """,(email,))
+        user = cursor.fetchone()
+        if not user:
+            return jsonify({"error":"Invalid credentials..."}),401
+
+        # this brings the user as a list which we access via indexes.Not optimal
+
+        # so we unpack it
+        (user_id,
+         username,
+         password_hash,
+         email,
+         email_verified
+         ) = user
+        # return ({"our user":user})
+
+        # check if user actually exists
+        if not bcrypt.check_password_hash(password_hash,password) :
+            return jsonify({"error":"Invalid credentials.."}),401
+
+        # check if they are verified or not
+        if not email_verified:
+            return jsonify({"error":"Please verify your email before logging in."}),403
+
+        # access_token creation
+        # user_id is a UUID and converting it into a string make sit easy to bake our access token.
+        access_token = create_access_token(identity=str(user_id))
+        refresh_token = create_refresh_token(identity=str(user_id))
+        
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error":str(e)}),500
+    
+    return jsonify({"message":"Test 3 complete & Login successfully.",
+                    "access_token":access_token,
+                    "refresh_token":refresh_token}),200
+
+@auth_bp.get("/test-protected")
+@jwt_required(refresh=False)
+def test_protected():
+    user_id = get_jwt_identity()
+
+    return jsonify({"message":"You are authenticated",
+                    "user_id":user_id}),200
+
+# refresh endpoint
+@auth_bp.post("/refresh")
+@jwt_required(refresh=True)
+def refresh():
+    user_id = get_jwt_identity()
+
+    new_access_token = create_access_token(identity= user_id)
+
+    return jsonify({"access_token":new_access_token}),200
+
        
- 
-
-
-
-
-
-
 
     # return{"message":"signup endpoint working",
     #        "data":data}
