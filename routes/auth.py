@@ -11,7 +11,8 @@ from flask_jwt_extended import (
     create_access_token,
     create_refresh_token,
     jwt_required,
-    get_jwt_identity
+    get_jwt_identity,
+    get_jwt
 
 )
 
@@ -452,6 +453,57 @@ def refresh():
     new_access_token = create_access_token(identity= user_id)
 
     return jsonify({"access_token":new_access_token}),200
+
+
+# Log out endpoint
+# WE store the refresh token in the database so we only need refresh tokens
+@auth_bp.post("/log-out")
+@jwt_required(refresh= True)
+def log_out():
+    jwt_payload = get_jwt()
+    # this gets us the payload from our current jwt
+
+    jti = jwt_payload["jti"]
+    # in the payload we have the jti(which we will store in our database) which we get it and store in our variable
+    token_type = jwt_payload["type"]
+    user_id = get_jwt_identity()
+    expires_at = datetime.fromtimestamp(
+        jwt_payload["exp"],
+        tz= timezone.utc
+    )
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+                INSERT INTO revoked_tokens(
+                jti,
+                token_type,
+                user_id,
+                expires_at
+                )
+                VALUES (%s,%s,%s,%s)
+                """,(
+                    jti,
+                    token_type,
+                    user_id,
+                    expires_at
+                ))
+        conn.commit()
+
+        cursor.close()
+        conn.close()
+
+        return jsonify({"message":"Logout successful"}),200
+    except Exception as e:
+        traceback.print_exc()
+
+        if conn:
+            conn.rollback()
+            conn.close()
+            return jsonify({"error":"AN error occurred during log out"}),500
+
 
        
 
