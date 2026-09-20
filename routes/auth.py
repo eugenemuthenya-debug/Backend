@@ -12,7 +12,8 @@ from flask_jwt_extended import (
     create_refresh_token,
     jwt_required,
     get_jwt_identity,
-    get_jwt
+    get_jwt,
+    decode_token
 
 )
 
@@ -458,51 +459,155 @@ def refresh():
 # Log out endpoint
 # WE store the refresh token in the database so we only need refresh tokens
 @auth_bp.post("/log-out")
-@jwt_required(refresh= True)
+@jwt_required()
 def log_out():
-    jwt_payload = get_jwt()
-    # this gets us the payload from our current jwt
-
-    jti = jwt_payload["jti"]
-    # in the payload we have the jti(which we will store in our database) which we get it and store in our variable
-    token_type = jwt_payload["type"]
-    user_id = get_jwt_identity()
-    expires_at = datetime.fromtimestamp(
-        jwt_payload["exp"],
-        tz= timezone.utc
-    )
+    conn = None
+    # if the database connection fails and we kept our original connection config we would have never received a response.
+    # By setting it to None ,we can safely ask :
+    # if conn:
 
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+     access_payload = get_jwt()
+        # gives us the payload for our access token
+    
+     access_jti = access_payload["jti"]
+        # we can now access the jti for the access token and store it in a variable.
+        
+     access_user_id = get_jwt_identity()
+        # this gets the user_id from the access token
+    
+     data = request.get_json()
+     if not data :
+        return jsonify({"error":"Request body is required."}),400
+        # if client didn't send a json body then stop 
 
-        cursor.execute("""
-                INSERT INTO revoked_tokens(
-                jti,
-                token_type,
-                user_id,
-                expires_at
-                )
-                VALUES (%s,%s,%s,%s)
-                """,(
-                    jti,
-                    token_type,
-                    user_id,
-                    expires_at
-                ))
-        conn.commit()
+     refresh_token = data.get("refresh_token")
+     if not refresh_token:
+        return jsonify({"error":"Refresh token is required"}),400
+        # if the refresh token wasn't provided then we can't do our proper log out
+    
+     refresh_payload = decode_token(refresh_token)
+        # we need to validate our refresh token making sure it wasn't changed.
+    
+     refresh_jti = refresh_payload["jti"]
+        # jti - has refresh token id
+        # sub - has our user_id
+     refresh_user_id = refresh_payload["sub"]
+    
+        # we need to check the type so that someone doesn't add an access_token to the refresh token json response
+     if refresh_payload["type"] != "refresh" :
+        return jsonify({"error":"Invalid refresh token"}),401
+    
+        # we check if both access and refresh token have the same user_id
+     if access_user_id != refresh_user_id :
+      return jsonify({"error":"Invalid token pair"}),401
+    
+        # we need to convert our token expiration timestamp to datetime values
+     access_expires_at = datetime.fromtimestamp(
+            access_payload["exp"],
+            tz=timezone.utc
+        )
+     refresh_expires_at = datetime.fromtimestamp(
+            refresh_payload["exp"],
+            tz=timezone.utc
+        )
+    #  now we can establish our log out
+     conn = get_db_connection()
+     cursor = conn.cursor()
 
-        cursor.close()
-        conn.close()
+     cursor.execute("""
+           INSERT INTO revoked_tokens(
+            jti,
+            token_type,
+            user_id,
+            expires_at
+            )
+            VALUES(%s,%s,%s,%s)     
+        """,(
+            access_jti,
+            "access",
+            access_user_id,
+            access_expires_at
+        ))
+    #  this was for the access token meaning it is revoked
+     cursor.execute("""
+            INSERT INTO revoked_tokens (
+             jti,
+             token_type,
+             user_id,
+             expires_at
+             )
+             VALUES(%s,%s,%s,%s)
+            """,(
+                refresh_jti,
+                "refresh",
+                refresh_user_id,
+                refresh_expires_at
+            ))
+     conn.commit()
 
-        return jsonify({"message":"Logout successful"}),200
-    except Exception as e:
+     cursor.close()
+
+     return jsonify({"message":"Logout Successful."}),200
+
+    except Exception as e: 
         traceback.print_exc()
 
         if conn:
             conn.rollback()
             conn.close()
-            return jsonify({"error":"AN error occurred during log out"}),500
+
+            # return jsonify({"error":"An error occurred during logout."}),500
+            return jsonify({"error":str(e)}),500
+            
+
+
+
+
+
+    # jwt_payload = get_jwt()
+    # # this gets us the payload from our current jwt
+
+    # jti = jwt_payload["jti"]
+    # # in the payload we have the jti(which we will store in our database) which we get it and store in our variable
+    # token_type = jwt_payload["type"]
+    # user_id = get_jwt_identity()
+    # expires_at = datetime.fromtimestamp(
+    #     jwt_payload["exp"],
+    #     tz= timezone.utc
+    # )
+
+    # try:
+    #     conn = get_db_connection()
+    #     cursor = conn.cursor()
+
+    #     cursor.execute("""
+    #             INSERT INTO revoked_tokens(
+    #             jti,
+    #             token_type,
+    #             user_id,
+    #             expires_at
+    #             )
+    #             VALUES (%s,%s,%s,%s)
+    #             """,(
+    #                 jti,
+    #                 token_type,
+    #                 user_id,
+    #                 expires_at
+    #             ))
+    #     conn.commit()
+
+    #     cursor.close()
+    #     conn.close()
+
+    #     return jsonify({"message":"Logout successful"}),200
+    # except Exception as e:
+    #     traceback.print_exc()
+
+    #     if conn:
+    #         conn.rollback()
+    #         conn.close()
+    #         return jsonify({"error":"AN error occurred during log out"}),500
 
 
        
