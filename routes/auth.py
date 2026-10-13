@@ -268,7 +268,8 @@ def verify_email():
                 email_verification_code_hash = NULL,
                 email_verification_expires_at = NULL,
                 email_verification_attempts = 0,
-                email_verification_last_attempt_at = NULL
+                email_verification_last_attempt_at = NULL,
+                account_status = 'ACTIVE'
             WHERE user_id = %s
                 """,(
                     user_id,))
@@ -397,7 +398,8 @@ def log_in():
              username,
              password_hash,
              email,
-             email_verified
+             email_verified,
+             account_status
             FROM users
             WHERE email = %s
             """,(email,))
@@ -412,7 +414,8 @@ def log_in():
          username,
          password_hash,
          email,
-         email_verified
+         email_verified,
+         account_status
          ) = user
         # return ({"our user":user})
 
@@ -423,6 +426,9 @@ def log_in():
         # check if they are verified or not
         if not email_verified:
             return jsonify({"error":"Please verify your email before logging in."}),403
+        # check account status
+        if account_status != "ACTIVE" :
+            return jsonify({"error":"Your account is not active."}),403
 
         # access_token creation
         # user_id is a UUID and converting it into a string make sit easy to bake our access token.
@@ -437,6 +443,8 @@ def log_in():
                     "access_token":access_token,
                     "refresh_token":refresh_token}),200
 
+
+# --------------------------------------------------------
 @auth_bp.get("/test-protected")
 @jwt_required(refresh=False)
 def test_protected():
@@ -454,7 +462,7 @@ def refresh():
     new_access_token = create_access_token(identity= user_id)
 
     return jsonify({"access_token":new_access_token}),200
-
+# --------------------------------------------------------
 
 # Log out endpoint
 # WE store the refresh token in the database so we only need refresh tokens
@@ -545,9 +553,9 @@ def log_out():
                 refresh_expires_at
             ))
      conn.commit()
-
      cursor.close()
-
+     conn.close()
+    #  we close the cursor and the connection
      return jsonify({"message":"Logout Successful."}),200
 
     except Exception as e: 
@@ -558,7 +566,7 @@ def log_out():
             conn.close()
 
             # return jsonify({"error":"An error occurred during logout."}),500
-            return jsonify({"error":str(e)}),500
+        return jsonify({"error":str(e)}),500
             
 
 
