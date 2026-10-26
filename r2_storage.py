@@ -1,3 +1,4 @@
+# This is our reusable client that will communicate with cloudflare R2.
 import os
 import boto3
 from dotenv import load_dotenv
@@ -16,20 +17,9 @@ r2 = boto3.client(
     aws_secret_access_key = R2_SECRET_ACCESS_KEY,
     region_name = "auto"
 )
-if __name__ == "__main__":
-    # print("Bucket:", R2_BUCKET_NAME)
-    # print("Endpoint:", R2_ENDPOINT)
-    file_path = "test-photo.jpg"
-    object_key = "test/test-photo.jpg"
+# We run this code to test that python can import our new module and create the R2 client
 
-    r2.upload_file(
-        file_path,
-        R2_BUCKET_NAME,
-        object_key
-    )
-    # response = r2.list_objects_v2(
-    #     Bucket=R2_BUCKET_NAME
-    # )
+# python -c "from r2_storage import r2, R2_BUCKET_NAME; print('R2 client created:', r2 is not None); print('Bucket configured:', bool(R2_BUCKET_NAME))"
 
-    print("Photo uploaded successfully!")
-    # print(response)
+# We test if our credentials can communicate with CloudflareR2:
+# python -c "from r2_storage import r2, R2_BUCKET_NAME; response = r2.list_objects_v2(Bucket=R2_BUCKET_NAME, MaxKeys=1); print('R2 connection successful'); print('HTTP status:', response['ResponseMetadata']['HTTPStatusCode'])"

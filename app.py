@@ -7,7 +7,11 @@ import os
 import psycopg
 from extensions import bcrypt,limiter,jwt
 
+# import of blueprints
+from routes.photos import photos_bp
 from routes.auth import auth_bp
+
+
 
 load_dotenv()
 app = Flask(__name__)
@@ -15,6 +19,11 @@ app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY")
 # expiration of our tokens
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(minutes=10)
 app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=30)
+
+# adding safe upload limits
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
+# 1024*1024 = 1MiB so *10 = 10MB
+
 bcrypt.init_app(app)
 limiter.init_app(app)
 jwt.init_app(app)
@@ -122,8 +131,13 @@ def token_verification_failed_callback(jwt_header,jwt_payload):
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-app.register_blueprint(auth_bp, url_prefix = "/api/auth")
+# --------------------------------------------------------
+# photo blueprint
+app.register_blueprint(photos_bp,url_prefix='/api/photos')
 
+# authentication blueprint
+app.register_blueprint(auth_bp, url_prefix = "/api/auth")
+# --------------------------------------------------------
 @app.get("/")
 def Home():
     return{
